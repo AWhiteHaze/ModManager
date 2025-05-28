@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+
+    <meta name="description" content="Gerenciador de Mods para Minecraft com interface estilo Discord">
+
+    <meta name="keywords" content="minecraft, mod manager, discord style, gerenciador de mods">
+
+    <link rel="stylesheet" href="styles.css">
+
+    <title>Mod Manager - Discord Style</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="icon" href="img/ChatGPT Image 28 de mai. de 2025, 15_26_40.png">
+    
+</head>
+<body>
+    <h1 class="sr-only">Gerenciador de Mods para Minecraft</h1>
+    
+    <nav class="server-list" aria-label="Navegação principal">
+        <button class="server-icon" title="Adicionar" aria-label="Adicionar mod">
+            <i class="fas fa-plus" aria-hidden="true"></i>
+        </button>
+        <button class="server-icon" title="Modpacks" aria-label="Modpacks">
+            <i class="fas fa-box-open" aria-hidden="true"></i>
+        </button>
+        <button class="server-icon" title="Configurações" aria-label="Configurações">
+            <i class="fas fa-cog" aria-hidden="true"></i>
+        </button>
+    </nav>
+
+    <main class="main-content">
+        <section class="mods-container" aria-labelledby="mods-section-title">
+            <h2 id="mods-section-title" class="sr-only">Lista de Mods</h2>
+            
+            <form class="add-mod-form" id="mod-form">
+                <div class="form-group">
+                    <label for="mod-name" class="form-label">Nome do Mod/Modpack</label>
+                    <input type="text" id="mod-name" class="form-input" placeholder="Ex: OptiFine" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="mod-version" class="form-label">Versão</label>
+                    <input type="text" id="mod-version" class="form-input" placeholder="Ex: 1.18.2" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="mod-loader" class="form-label">Loader</label>
+                    <select id="mod-loader" class="loader-type" required>
+                        <option value="" disabled selected>Selecione o Loader</option>
+                        <option value="forge">Forge</option>
+                        <option value="fabric">Fabric</option>
+                        <option value="other">Outro</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="mod-description" class="form-label">Descrição</label>
+                    <textarea id="mod-description" class="form-input" 
+                        placeholder="Itens separados por vírgulas ou novas linhas" 
+                        rows="3" required></textarea>
+                </div>
+                
+                <button type="submit" class="btn">Adicionar Mod</button>
+            </form>
+
+            <div id="mods-list"></div>
+        </section>
+
+        <aside class="right-sidebar" aria-labelledby="details-section-title">
+            <h3 id="details-section-title">Detalhes do Mod</h3>
+            <div id="mod-details">
+                <div style="background: #40444b; padding: 15px; border-radius: 8px; margin-top: 15px">
+                    <p style="color: var(--discord-text-muted); text-align: center;">Selecione um mod para ver os detalhes</p>
+                </div>
+            </div>
+            <button id="download-list-btn" class="btn btn-success" style="margin-top: 15px;">
+                <i class="fas fa-download"></i> Baixar Lista de Mods
+            </button>
+        </aside>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // Variáveis globais
+        let mods = [];
+        const STORAGE_KEY = 'modManager_mods';
+        let editingModId = null;
+
+        // Elementos do DOM
+        const modForm = document.getElementById('mod-form');
+        const modsList = document.getElementById('mods-list');
+        const modDetails = document.getElementById('mod-details');
+        const toast = document.getElementById('toast');
+        const downloadListBtn = document.getElementById('download-list-btn');
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', () => {
+            loadMods();
+            setupEventListeners();
+        });
+
+        // Configura listeners de eventos
+        function setupEventListeners() {
+            modForm.addEventListener('submit', handleFormSubmit);
+            downloadListBtn.addEventListener('click', downloadModsList);
+        }
+
+        // Manipulador do formulário
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('mod-name').value.trim();
+            const version = document.getElementById('mod-version').value.trim();
+            const loader = document.getElementById('mod-loader').value;
+            const description = document.getElementById('mod-description').value.trim();
+            
+            const errors = validateModInputs(name, version, loader, description);
+            if (errors.length > 0) {
+                showToast(errors.join('<br>'), 'error');
+                return;
+            }
+
+            if (editingModId) {
+                updateMod(editingModId, name, version, loader, description);
+            } else {
+                addMod(name, version, loader, description);
+            }
+        }
+
+        // Validação de inputs
+        function validateModInputs(name, version, loader, description) {
+            const errors = [];
+            
+            if (!name) errors.push('Nome é obrigatório');
+            if (!version) errors.push('Versão é obrigatória');
+            if (!loader) errors.push('Loader é obrigatório');
+            if (!description) errors.push('Descrição é obrigatória');
+            
+            return errors;
+        }
+
+        // Adiciona um novo mod
+        function addMod(name, version, loader, description) {
+            const mod = {
+                id: Date.now().toString(),
+                name: name,
+                version: version,
+                loader: loader,
+                description: formatDescription(description),
+                author: 'Usuário',
+                date: new Date().toLocaleDateString('pt-BR'),
+                createdAt: new Date().toISOString()
+            };
+
+            mods.unshift(mod); // Adiciona no início do array
+            saveMods();
+            renderMods();
+            showModDetails(mod);
+            resetForm();
+            
+            showToast('Mod adicionado com sucesso!', 'success');
+        }
+
+        // Atualiza um mod existente
+        function updateMod(modId, name, version, loader, description) {
+            const modIndex = mods.findIndex(mod => mod.id === modId);
+            if (modIndex !== -1) {
+                mods[modIndex] = {
+                    ...mods[modIndex],
+                    name: name,
+                    version: version,
+                    loader: loader,
+                    description: formatDescription(description),
+                    date: new Date().toLocaleDateString('pt-BR')
+                };
+                
+                saveMods();
+                renderMods();
+                showModDetails(mods[modIndex]);
+                resetForm();
+                editingModId = null;
+                
+                showToast('Mod atualizado com sucesso!', 'success');
+            }
+        }
+
+        // Preenche o formulário para edição
+        function fillFormForEditing(mod) {
+            document.getElementById('mod-name').value = mod.name;
+            document.getElementById('mod-version').value = mod.version;
+            document.getElementById('mod-loader').value = mod.loader;
+            
+            // Extrai o texto da descrição formatada
+            let descriptionText = '';
+            if (mod.description.includes('<ul')) {
+                const liContents = mod.description.match(/<li>(.*?)<\/li>/g);
+                if (liContents) {
+                    descriptionText = liContents.map(li => 
+                        li.replace(/<\/?li>/g, '')
+                    ).join('\n');
+                }
+            } else {
+                descriptionText = mod.description.replace(/<\/?p[^>]*>/g, '');
+            }
+            
+            document.getElementById('mod-description').value = descriptionText;
+            editingModId = mod.id;
+            
+            // Altera o texto do botão para indicar edição
+            const submitBtn = modForm.querySelector('button[type="submit"]');
+            submitBtn.textContent = 'Atualizar Mod';
+            submitBtn.classList.add('btn-warning');
+            
+            // Foca no primeiro campo
+            document.getElementById('mod-name').focus();
+        }
+
+        // Formata a descrição
+        function formatDescription(text) {
+            const items = text.split(/,|\n/)
+                .map(item => item.trim())
+                .filter(item => item.length > 0);
+            
+            if (items.length === 0) return '<p style="color: var(--discord-text-muted)">Nenhuma descrição fornecida</p>';
+            
+            return `<ul class="description-list">${
+                items.map(item => `<li>${item}</li>`).join('')
+            }</ul>`;
+        }
+
+        // Renderiza a lista de mods
+        function renderMods() {
+            modsList.innerHTML = '';
+
+            if (mods.length === 0) {
+                modsList.innerHTML = `
+                    <p style="color: var(--discord-text-muted); text-align: center;">
+                        Nenhum mod adicionado ainda
+                    </p>
+                `;
+                return;
+            }
+
+            mods.forEach(mod => {
+                const modCard = document.createElement('article');
+                modCard.className = 'mod-card';
+                modCard.tabIndex = 0;
+                modCard.setAttribute('aria-labelledby', `mod-${mod.id}-title`);
+                modCard.innerHTML = `
+                    <h3 id="mod-${mod.id}-title">
+                        ${mod.name} 
+                        <span style="color: var(--discord-text-muted); font-size: 0.8em">v${mod.version}</span>
+                        ${getLoaderTag(mod.loader)}
+                    </h3>
+                    ${mod.description}
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px">
+                        <span style="font-size: 0.8em; color: var(--discord-text-muted)">
+                            ${mod.author} • ${mod.date}
+                        </span>
+                        <div class="btn-group">
+                            <button class="btn btn-info btn-sm" 
+                                aria-label="Editar mod ${mod.name}"
+                                data-mod-id="${mod.id}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-success btn-sm" 
+                                aria-label="Baixar mod ${mod.name}"
+                                data-mod-id="${mod.id}">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button class="btn btn-danger btn-sm" 
+                                aria-label="Excluir mod ${mod.name}"
+                                data-mod-id="${mod.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                modCard.addEventListener('click', () => showModDetails(mod));
+                modCard.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        showModDetails(mod);
+                    }
+                });
+                
+                // Adiciona eventos aos botões
+                const editBtn = modCard.querySelector('.btn-info');
+                editBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    fillFormForEditing(mod);
+                });
+                
+                const downloadBtn = modCard.querySelector('.btn-success');
+                downloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    downloadSingleMod(mod);
+                });
+                
+                const deleteBtn = modCard.querySelector('.btn-danger');
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteMod(mod.id);
+                });
+                
+                modsList.appendChild(modCard);
+            });
+        }
+
+        // Mostra detalhes do mod
+        function showModDetails(mod) {
+            modDetails.innerHTML = `
+                <article style="background: #40444b; padding: 15px; border-radius: 8px; margin-top: 15px">
+                    <h4>
+                        ${mod.name} 
+                        ${getLoaderTag(mod.loader)}
+                    </h4>
+                    <p style="margin: 10px 0"><strong>Versão:</strong> ${mod.version}</p>
+                    <p style="margin: 10px 0"><strong>Loader:</strong> ${capitalizeFirstLetter(mod.loader)}</p>
+                    ${mod.description}
+                    <hr style="border-color: var(--discord-text-muted); margin: 15px 0">
+                    <div style="font-size: 0.9em">
+                        <p><strong>Autor:</strong> ${mod.author}</p>
+                        <p><strong>Data de criação:</strong> ${mod.date}</p>
+                    </div>
+                </article>
+            `;
+        }
+
+        // Exclui um mod
+        function deleteMod(modId) {
+            if (confirm('Tem certeza que deseja excluir este mod?')) {
+                mods = mods.filter(mod => mod.id !== modId);
+                saveMods();
+                renderMods();
+                
+                if (mods.length === 0) {
+                    modDetails.innerHTML = `
+                        <div style="background: #40444b; padding: 15px; border-radius: 8px; margin-top: 15px">
+                            <p style="color: var(--discord-text-muted); text-align: center;">
+                                Selecione um mod para ver os detalhes
+                            </p>
+                        </div>
+                    `;
+                }
+                
+                showToast('Mod excluído com sucesso!', 'success');
+            }
+        }
+
+        // Baixa um único mod como arquivo JSON
+        function downloadSingleMod(mod) {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(mod, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", `mod_${mod.name.replace(/\s+/g, '_')}.json`);
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            
+            showToast(`Mod ${mod.name} baixado!`, 'success');
+        }
+
+        // Baixa a lista completa de mods como arquivo JSON
+        function downloadModsList() {
+            if (mods.length === 0) {
+                showToast('Nenhum mod para baixar!', 'error');
+                return;
+            }
+            
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(mods, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "lista_de_mods.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            
+            showToast('Lista de mods baixada!', 'success');
+        }
+
+        // Retorna a tag do loader
+        function getLoaderTag(loader) {
+            switch(loader) {
+                case 'forge': return '<span class="loader-tag forge-tag">Forge</span>';
+                case 'fabric': return '<span class="loader-tag fabric-tag">Fabric</span>';
+                default: return '<span class="loader-tag other-tag">Outro</span>';
+            }
+        }
+
+        // Capitaliza a primeira letra
+        function capitalizeFirstLetter(string) {
+            return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+
+        // Reseta o formulário
+        function resetForm() {
+            modForm.reset();
+            editingModId = null;
+            
+            // Restaura o texto e estilo do botão de submit
+            const submitBtn = modForm.querySelector('button[type="submit"]');
+            submitBtn.textContent = 'Adicionar Mod';
+            submitBtn.classList.remove('btn-warning');
+            
+            document.getElementById('mod-name').focus();
+        }
+
+        // Mostra notificação toast
+        function showToast(message, type = 'info') {
+            toast.innerHTML = message;
+            toast.className = 'toast';
+            toast.classList.add(type, 'show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Persistência de dados
+        function saveMods() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mods));
+        }
+
+        function loadMods() {
+            const savedMods = localStorage.getItem(STORAGE_KEY);
+            if (savedMods) {
+                mods = JSON.parse(savedMods);
+                
+                // Garante que cada mod tenha um ID
+                mods.forEach(mod => {
+                    if (!mod.id) mod.id = Date.now().toString();
+                });
+                
+                renderMods();
+            } else {
+                // Dados iniciais de exemplo
+                mods = [{
+                    id: '1',
+                    name: 'Exemplo Mod',
+                    version: '1.0.0',
+                    loader: 'forge',
+                    description: formatDescription('Melhora performance, Adiciona novos itens\nCorrige bugs gráficos'),
+                    author: 'Admin',
+                    date: new Date().toLocaleDateString('pt-BR'),
+                    createdAt: new Date().toISOString()
+                }];
+                saveMods();
+                renderMods();
+            }
+        }
+    </script>
+</body>
+</html>
